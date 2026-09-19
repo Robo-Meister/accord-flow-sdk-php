@@ -35,6 +35,54 @@ $client = new AccordFlowClient(
 $status = $client->status();
 ```
 
+## Canonical envelope lifecycle
+
+Application integrations such as Robo Connector Legal Office should use the Envelope API for signing workflows. The Envelope API separates preparation from dispatch and preserves lifecycle identity for later status, audit, and evidence reconciliation.
+
+```php
+$envelope = $client->createEnvelope([
+    'name' => 'Engagement agreement',
+    'organisationId' => 'org-123',
+    'globalDocumentId' => 'doc-123',
+    'contextType' => 'legal_matter',
+    'contextId' => 'matter-123',
+    'rcContext' => [
+        'correlationId' => 'signing-123',
+    ],
+    'compliance' => [
+        // Application-approved compliance input.
+    ],
+], 'signing-123:create');
+
+$envelopeId = $envelope['id'];
+
+$client->addEnvelopeDocument($envelopeId, '/path/to/approved.pdf', 'signing-123:document');
+
+$client->addEnvelopeRecipients($envelopeId, [[
+    'name' => 'Client',
+    'email' => 'client@example.com',
+    'routingOrder' => 1,
+    'role' => 'SIGNER',
+]], 'signing-123:recipients');
+
+// Applications may perform their own review/communication flow here.
+
+$client->sendEnvelope($envelopeId, [
+    'initiatedBy' => 'user-123',
+    'compliance' => [
+        // Same approved send/compliance context required by the runtime.
+    ],
+], 'signing-123:send');
+
+$status = $client->getEnvelopeStatus($envelopeId);
+$audit = $client->getEnvelopeAudit($envelopeId);
+$evidence = $client->getEnvelopeEvidence($envelopeId);
+```
+
+The canonical application lifecycle is `/api/envelopes/*`. The lower-level `sign()`, `signFile()`, `verify()`, and `verifyFile()` helpers remain available for cryptographic/provider operations, but they are not the preferred orchestration API for Robo Connector Legal Office.
+
+Mutating envelope helpers accept an optional idempotency key and send it as `Idempotency-Key`. A transport timeout after a mutation must be treated by the caller as an unknown outcome unless it can reconcile the operation through envelope identity/status.
+
 ## Sign JSON payloads
 
 ```php
