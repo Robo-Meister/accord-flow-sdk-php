@@ -12,5 +12,8 @@
     "psr-4": {
       "AccordFlow\\": "src/"
     }
+  },
+  "scripts": {
+    "test": "php tests/contract.php"
   }
 }
