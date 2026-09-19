@@ -62,6 +62,98 @@ final class AccordFlowClient
         return $this->get('/api/auth/usage/' . rawurlencode($username));
     }
 
+
+    /**
+     * Canonical application-level signing lifecycle. Low-level sign()/verify()
+     * remain available for cryptographic/provider operations.
+     *
+     * @param array<string, mixed> $payload
+     */
+    public function createEnvelope(array $payload, ?string $idempotencyKey = null): mixed
+    {
+        return $this->post('/api/envelopes', $payload, $this->idempotencyHeaders($idempotencyKey));
+    }
+
+    public function getEnvelope(int|string $envelopeId): mixed
+    {
+        return $this->get('/api/envelopes/' . rawurlencode((string) $envelopeId));
+    }
+
+    public function getEnvelopeStatus(int|string $envelopeId): mixed
+    {
+        return $this->get('/api/envelopes/' . rawurlencode((string) $envelopeId) . '/status');
+    }
+
+    public function addEnvelopeDocument(
+        int|string $envelopeId,
+        string $filePath,
+        ?string $idempotencyKey = null,
+    ): mixed {
+        return $this->multipart(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/documents',
+            $filePath,
+            [],
+            'files',
+            $this->idempotencyHeaders($idempotencyKey),
+        );
+    }
+
+    /**
+     * @param list<array<string, mixed>> $recipients
+     */
+    public function addEnvelopeRecipients(
+        int|string $envelopeId,
+        array $recipients,
+        ?string $idempotencyKey = null,
+    ): mixed {
+        return $this->post(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/recipients',
+            $recipients,
+            $this->idempotencyHeaders($idempotencyKey),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    public function sendEnvelope(
+        int|string $envelopeId,
+        array $payload,
+        ?string $idempotencyKey = null,
+    ): mixed {
+        return $this->post(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/send',
+            $payload,
+            $this->idempotencyHeaders($idempotencyKey),
+        );
+    }
+
+    public function getEnvelopeAudit(int|string $envelopeId): mixed
+    {
+        return $this->get('/api/envelopes/' . rawurlencode((string) $envelopeId) . '/audit');
+    }
+
+    public function getEnvelopeEvidence(int|string $envelopeId): mixed
+    {
+        return $this->get('/api/envelopes/' . rawurlencode((string) $envelopeId) . '/evidence');
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    public function createEnvelopeEvidenceBundle(int|string $envelopeId, array $payload = []): mixed
+    {
+        return $this->post(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/evidence/bundle',
+            $payload,
+        );
+    }
+
+    public function downloadEnvelopeRecords(int|string $envelopeId): mixed
+    {
+        return $this->get('/api/envelopes/' . rawurlencode((string) $envelopeId) . '/records');
+    }
+
     /**
      * @param array<string, mixed> $payload
      */
@@ -100,26 +192,30 @@ final class AccordFlowClient
         ]);
     }
 
-    public function get(string $path): mixed
+    /** @param array<string, string> $headers */
+    public function get(string $path, array $headers = []): mixed
     {
-        return $this->request('GET', $path);
+        return $this->request('GET', $path, null, $headers);
     }
 
     /**
      * @param array<string, mixed> $payload
+     * @param array<string, string> $headers
      */
-    public function post(string $path, array $payload): mixed
+    public function post(string $path, array $payload, array $headers = []): mixed
     {
-        return $this->request('POST', $path, $payload);
+        return $this->request('POST', $path, $payload, $headers);
     }
 
     /**
      * @param array<string, mixed>|null $jsonPayload
+     * @param array<string, string> $headers
      */
-    public function request(string $method, string $path, ?array $jsonPayload = null): mixed
+    public function request(string $method, string $path, ?array $jsonPayload = null, array $headers = []): mixed
     {
         $headers = $this->formatHeaders([
             ...$this->defaultHeaders,
+            ...$headers,
             'Content-Type' => 'application/json',
         ]);
 
@@ -134,16 +230,26 @@ final class AccordFlowClient
     /**
      * @param array<string, string|int|float|bool|null> $fields
      */
-    public function multipart(string $path, string $filePath, array $fields = []): mixed
-    {
+    public function multipart(
+        string $path,
+        string $filePath,
+        array $fields = [],
+        string $fileField = 'file',
+        array $headers = [],
+    ): mixed {
         if (!is_file($filePath)) {
             throw new AccordFlowException(sprintf('File not found: %s', $filePath));
         }
 
         $payload = array_filter($fields, static fn (mixed $value): bool => $value !== null);
-        $payload['file'] = new CurlFile($filePath);
+        $payload[$fileField] = new CurlFile($filePath);
 
-        return $this->send('POST', $path, $this->formatHeaders($this->defaultHeaders), $payload);
+        return $this->send(
+            'POST',
+            $path,
+            $this->formatHeaders([...$this->defaultHeaders, ...$headers]),
+            $payload,
+        );
     }
 
     /**
@@ -204,6 +310,14 @@ final class AccordFlowClient
         }
 
         return json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    /** @return array<string, string> */
+    private function idempotencyHeaders(?string $idempotencyKey): array
+    {
+        $idempotencyKey = $idempotencyKey !== null ? trim($idempotencyKey) : '';
+
+        return $idempotencyKey === '' ? [] : ['Idempotency-Key' => $idempotencyKey];
     }
 
     /**
