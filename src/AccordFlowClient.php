@@ -106,11 +106,18 @@ final class AccordFlowClient
         array $recipients,
         ?string $idempotencyKey = null,
     ): mixed {
-        return $this->post(
+        $result = $this->post(
             '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/recipients',
             $recipients,
             $this->idempotencyHeaders($idempotencyKey),
         );
+
+        // The runtime returns a JSON list. Normalize it to an explicit envelope
+        // operation result so application adapters do not need to special-case
+        // top-level list responses.
+        return is_array($result) && array_is_list($result)
+            ? ['recipients' => $result]
+            : $result;
     }
 
     /**
