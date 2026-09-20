@@ -58,14 +58,24 @@ $envelopeId = $envelope['id'];
 
 $client->addEnvelopeDocument($envelopeId, '/path/to/approved.pdf', 'signing-123:document');
 
-$client->addEnvelopeRecipients($envelopeId, [[
+$recipientResult = $client->addEnvelopeRecipients($envelopeId, [[
     'name' => 'Client',
     'email' => 'client@example.com',
     'routingOrder' => 1,
     'role' => 'SIGNER',
 ]], 'signing-123:recipients');
 
-// Applications may perform their own review/communication flow here.
+$recipientId = $recipientResult['recipients'][0]['id'];
+
+// Prepare a provider-owned signing session before recipient-facing delivery.
+$session = $client->createEnvelopeEmbeddedSession($envelopeId, [
+    'recipientId' => $recipientId,
+    'locale' => 'en-US',
+], 'signing-123:session');
+
+$signingUrl = $session['signingUrl'] ?? null;
+
+// Applications such as Robo Connector may perform their own review/Communication flow here.
 
 $client->sendEnvelope($envelopeId, [
     'initiatedBy' => 'user-123',
@@ -77,11 +87,37 @@ $client->sendEnvelope($envelopeId, [
 $status = $client->getEnvelopeStatus($envelopeId);
 $audit = $client->getEnvelopeAudit($envelopeId);
 $evidence = $client->getEnvelopeEvidence($envelopeId);
+
+// When delivery is owned by the integrating application, record its delivery
+// outcome separately so AccordFlow can retain it in audit/evidence.
+$client->recordEnvelopeDeliveryProof($envelopeId, [
+    'recipientId' => $recipientId,
+    'channel' => 'EMAIL',
+    'eventType' => 'DISPATCHED',
+    'status' => 'SENT',
+    'destination' => 'client@example.com',
+    'templateId' => 'legal.signature.invitation.v1',
+], 'signing-123:delivery-proof');
 ```
 
 The canonical application lifecycle is `/api/envelopes/*`. The lower-level `sign()`, `signFile()`, `verify()`, and `verifyFile()` helpers remain available for cryptographic/provider operations, but they are not the preferred orchestration API for Robo Connector Legal Office.
 
 Mutating envelope helpers accept an optional idempotency key and send it as `Idempotency-Key`. A transport timeout after a mutation must be treated by the caller as an unknown outcome unless it can reconcile the operation through envelope identity/status.
+
+
+### Application-owned invitation delivery
+
+For applications that own recipient-facing communication, AccordFlow may prepare the Envelope, recipient and embedded signing session while the application sends the invitation through its own Communication subsystem. The runtime returns a provider-owned `signingUrl`; callers should not reconstruct the signing frontend route from the session token.
+
+Typed SDK operations used by this flow are:
+
+- `addEnvelopeRecipients()`
+- `createEnvelopeEmbeddedSession()`
+- `getEnvelopeEmbeddedSessions()`
+- `recordEnvelopeDeliveryProof()`
+- `sendEnvelope()`
+
+These methods are part of the intended `v0.0.2` integration contract. Publish the release tag only after the matching AccordFlow runtime contract is merged.
 
 ## Sign JSON payloads
 

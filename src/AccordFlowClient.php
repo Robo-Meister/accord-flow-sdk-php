@@ -106,9 +106,53 @@ final class AccordFlowClient
         array $recipients,
         ?string $idempotencyKey = null,
     ): mixed {
-        return $this->post(
+        $result = $this->post(
             '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/recipients',
             $recipients,
+            $this->idempotencyHeaders($idempotencyKey),
+        );
+
+        // The runtime returns a JSON list. Normalize it to an explicit envelope
+        // operation result so application adapters do not need to special-case
+        // top-level list responses.
+        return is_array($result) && array_is_list($result)
+            ? ['recipients' => $result]
+            : $result;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    public function createEnvelopeEmbeddedSession(
+        int|string $envelopeId,
+        array $payload,
+        ?string $idempotencyKey = null,
+    ): mixed {
+        return $this->post(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/embedded-sessions',
+            $payload,
+            $this->idempotencyHeaders($idempotencyKey),
+        );
+    }
+
+    public function getEnvelopeEmbeddedSessions(int|string $envelopeId): mixed
+    {
+        return $this->get(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/embedded-sessions',
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    public function recordEnvelopeDeliveryProof(
+        int|string $envelopeId,
+        array $payload,
+        ?string $idempotencyKey = null,
+    ): mixed {
+        return $this->post(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/delivery-proofs',
+            $payload,
             $this->idempotencyHeaders($idempotencyKey),
         );
     }
