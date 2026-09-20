@@ -58,12 +58,14 @@ $envelopeId = $envelope['id'];
 
 $client->addEnvelopeDocument($envelopeId, '/path/to/approved.pdf', 'signing-123:document');
 
-$client->addEnvelopeRecipients($envelopeId, [[
+$recipientResult = $client->addEnvelopeRecipients($envelopeId, [[
     'name' => 'Client',
     'email' => 'client@example.com',
     'routingOrder' => 1,
     'role' => 'SIGNER',
 ]], 'signing-123:recipients');
+
+$recipientId = $recipientResult['recipients'][0]['id'];
 
 // Prepare a provider-owned signing session before recipient-facing delivery.
 $session = $client->createEnvelopeEmbeddedSession($envelopeId, [
