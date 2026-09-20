@@ -116,6 +116,43 @@ final class AccordFlowClient
     /**
      * @param array<string, mixed> $payload
      */
+    public function createEnvelopeEmbeddedSession(
+        int|string $envelopeId,
+        array $payload,
+        ?string $idempotencyKey = null,
+    ): mixed {
+        return $this->post(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/embedded-sessions',
+            $payload,
+            $this->idempotencyHeaders($idempotencyKey),
+        );
+    }
+
+    public function getEnvelopeEmbeddedSessions(int|string $envelopeId): mixed
+    {
+        return $this->get(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/embedded-sessions',
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    public function recordEnvelopeDeliveryProof(
+        int|string $envelopeId,
+        array $payload,
+        ?string $idempotencyKey = null,
+    ): mixed {
+        return $this->post(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/delivery-proofs',
+            $payload,
+            $this->idempotencyHeaders($idempotencyKey),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
     public function sendEnvelope(
         int|string $envelopeId,
         array $payload,
