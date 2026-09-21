@@ -46,11 +46,20 @@ $run = static function (array $receipt) use ($blocks): DispatchExampleClient {
     return $client;
 };
 
-foreach ([[], ['status' => 'SENT', 'messageId' => 'message-1', 'sentAt' => '2026-09-21T08:00:00']] as $receipt) {
+$receipts = [
+    [],
+    ['status' => 'FAILED'],
+    ['status' => 'QUEUED'],
+    ['status' => 'SENT', 'messageId' => 'message-1', 'sentAt' => '2026-09-21T08:00:00'],
+];
+foreach ($receipts as $receipt) {
     $client = $run($receipt);
     $names = array_column($client->calls, 0);
     $expected = ['createEnvelope', 'addEnvelopeDocument', 'addEnvelopeRecipients', 'createEnvelopeEmbeddedSession', 'sendEnvelope'];
-    if ($receipt !== []) $expected[] = 'recordEnvelopeDeliveryProof';
+    $delivered = ($receipt['status'] ?? null) === 'SENT';
+    if ($delivered) {
+        $expected[] = 'recordEnvelopeDeliveryProof';
+    }
     if ($names !== $expected) {
         throw new RuntimeException('Invitation example changed mutation order or invented a delivery proof.');
     }
@@ -68,5 +77,16 @@ foreach ([[], ['status' => 'SENT', 'messageId' => 'message-1', 'sentAt' => '2026
     if ($client->calls[3][1][1]['recipientId'] !== 7) {
         throw new RuntimeException('Session must use the returned recipient identity.');
     }
+    $keys = array_map(static fn (array $call): mixed => $call[1][array_key_last($call[1])], $client->calls);
+    if (count($keys) !== count(array_unique($keys))) {
+        throw new RuntimeException('Each mutation must have a distinct idempotency key.');
+    }
+    if ($delivered) {
+        $proof = $client->calls[5][1][1];
+        if ($proof['recipientId'] !== 7 || $proof['providerEventId'] !== $receipt['messageId']
+            || $proof['occurredAt'] !== $receipt['sentAt']) {
+            throw new RuntimeException('Proof must retain actual recipient and Communication receipt coordinates.');
+        }
+    }
 }
-echo "Canonical dispatch/consent example OK (2 scenarios)\n";
+echo "Canonical dispatch/consent example OK (4 scenarios)\n";
