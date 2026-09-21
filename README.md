@@ -7,14 +7,15 @@ by local open API mode.
 
 ## Installation
 
-Add the SDK to your application with Composer. For local development, reference
-this repository path:
+For application deployments, resolve the published release through Composer:
 
 ```bash
-composer config repositories.accordflow path ../signature/sdk/php
-composer require robo-meister/accord-flow-api:*
+composer require robo-meister/accord-flow-api:^0.0.2
 ```
 
+Verify that your Composer registry resolves the release before updating an
+application lockfile. A Git tag and registry availability are separate checks.
+Local path repositories are for SDK development, not release substitution.
 The package requires the PHP `curl` and `json` extensions.
 
 ## Quick start
@@ -37,7 +38,13 @@ $status = $client->status();
 
 ## Canonical envelope lifecycle
 
-Application integrations such as Robo Connector Legal Office should use the Envelope API for signing workflows. The Envelope API separates preparation from dispatch and preserves lifecycle identity for later status, audit, and evidence reconciliation.
+This example requires the AccordFlow runtime fix
+`ACCORD-FLOW-DISPATCH-VS-SIGNER-CONSENT-BOUNDARY-001`, not merely SDK v0.0.2.
+Preparing or dispatching an Envelope does not assert signer consent or intent.
+The actual signer supplies those facts through the signing interaction.
+
+Prepare the approved immutable document, recipient and signing session. This
+stage neither activates the Envelope nor sends an invitation.
 
 ```php
 $envelope = $client->createEnvelope([
@@ -46,16 +53,12 @@ $envelope = $client->createEnvelope([
     'globalDocumentId' => 'doc-123',
     'contextType' => 'legal_matter',
     'contextId' => 'matter-123',
-    'rcContext' => [
-        'correlationId' => 'signing-123',
-    ],
-    'compliance' => [
-        // Application-approved compliance input.
-    ],
+    'sendImmediately' => false,
+    'notificationOwnership' => 'EXTERNAL',
+    'rcContext' => ['correlationId' => 'signing-123'],
 ], 'signing-123:create');
 
 $envelopeId = $envelope['id'];
-
 $client->addEnvelopeDocument($envelopeId, '/path/to/approved.pdf', 'signing-123:document');
 
 $recipientResult = $client->addEnvelopeRecipients($envelopeId, [[
@@ -64,60 +67,83 @@ $recipientResult = $client->addEnvelopeRecipients($envelopeId, [[
     'routingOrder' => 1,
     'role' => 'SIGNER',
 ]], 'signing-123:recipients');
-
 $recipientId = $recipientResult['recipients'][0]['id'];
 
-// Prepare a provider-owned signing session before recipient-facing delivery.
 $session = $client->createEnvelopeEmbeddedSession($envelopeId, [
     'recipientId' => $recipientId,
     'locale' => 'en-US',
 ], 'signing-123:session');
-
 $signingUrl = $session['signingUrl'] ?? null;
-
-// Applications such as Robo Connector may perform their own review/Communication flow here.
-
-$client->sendEnvelope($envelopeId, [
-    'initiatedBy' => 'user-123',
-    'compliance' => [
-        // Same approved send/compliance context required by the runtime.
-    ],
-], 'signing-123:send');
-
-$status = $client->getEnvelopeStatus($envelopeId);
-$audit = $client->getEnvelopeAudit($envelopeId);
-$evidence = $client->getEnvelopeEvidence($envelopeId);
-
-// When delivery is owned by the integrating application, record its delivery
-// outcome separately so AccordFlow can retain it in audit/evidence.
-$client->recordEnvelopeDeliveryProof($envelopeId, [
-    'recipientId' => $recipientId,
-    'channel' => 'EMAIL',
-    'eventType' => 'DISPATCHED',
-    'status' => 'SENT',
-    'destination' => 'client@example.com',
-    'templateId' => 'legal.signature.invitation.v1',
-], 'signing-123:delivery-proof');
+if (!is_string($signingUrl) || filter_var($signingUrl, FILTER_VALIDATE_URL) === false) {
+    throw new RuntimeException('AccordFlow did not return a signing destination.');
+}
 ```
 
-The canonical application lifecycle is `/api/envelopes/*`. The lower-level `sign()`, `signFile()`, `verify()`, and `verifyFile()` helpers remain available for cryptographic/provider operations, but they are not the preferred orchestration API for Robo Connector Legal Office.
+The application now creates and reviews its Communication draft. Before the
+following step it must revalidate the exact approved revision, signer contact,
+session identity, session expiry and professional send authorization. Never
+silently replace an expired session URL in an already approved message.
 
-Mutating envelope helpers accept an optional idempotency key and send it as `Idempotency-Key`. A transport timeout after a mutation must be treated by the caller as an unknown outcome unless it can reconcile the operation through envelope identity/status.
+```php
+// Run only after the application's professional review and current-state checks.
+$client->sendEnvelope($envelopeId, [
+    'initiatedBy' => 'professional@example.com',
+    'notificationOwnership' => 'EXTERNAL',
+], 'signing-123:send');
 
+// Communication, not AccordFlow, now delivers the approved invitation.
+// $communicationReceipt comes from that subsystem's durable send result.
+if (($communicationReceipt['status'] ?? null) === 'SENT') {
+    $client->recordEnvelopeDeliveryProof($envelopeId, [
+        'recipientId' => $recipientId,
+        'channel' => 'EMAIL',
+        'eventType' => 'DISPATCHED',
+        'status' => 'SENT',
+        'destination' => 'client@example.com',
+        'templateId' => 'legal.signature.invitation.v1',
+        'providerEventId' => $communicationReceipt['messageId'],
+        'occurredAt' => $communicationReceipt['sentAt'],
+    ], 'signing-123:delivery-proof');
+}
+```
+
+A failed delivery-proof request must retry only the proof, not send the email
+again. Likewise, an activated Envelope is not proof that Communication delivered
+anything. `SENT` is not signed-document/evidence reconciliation completion.
+
+### Dispatch policy, not signer evidence
+
+The corrected send API accepts optional `dispatchPolicy` containing only
+`policyReferences` and `retention`. Omitted retention uses the existing
+`signature.retention.envelope` configuration and is still validated/persisted by
+AccordFlow. Explicit directives still have to satisfy the configured bounds.
+These defaults are application configuration, not a jurisdiction-specific legal
+compliance guarantee.
+
+Legacy `compliance` remains a deprecated wire adapter: only its Envelope policy
+and retention fields are used at send. Its `consent` and `intent` fields do not
+produce signer evidence. Do not send both `dispatchPolicy` and `compliance`.
+Draft creation ignores legacy signer data; pass policy overrides on the later
+send request. `sendImmediately=true` uses the same corrected dispatch boundary.
+Clients that relied on send creating signer evidence must migrate to the real
+signing interaction; there is no compatibility switch that fabricates consent.
 
 ### Application-owned invitation delivery
 
-For applications that own recipient-facing communication, AccordFlow may prepare the Envelope, recipient and embedded signing session while the application sends the invitation through its own Communication subsystem. The runtime returns a provider-owned `signingUrl`; callers should not reconstruct the signing frontend route from the session token.
+`EXTERNAL` ownership suppresses native dispatch, reminder and void notifications;
+AccordFlow still owns recipient authentication, signing, lifecycle and evidence.
+The provider-owned `signingUrl` requires runtime public-signing configuration.
+Do not reconstruct the frontend route or log the URL/capability token.
 
-Typed SDK operations used by this flow are:
+SDK v0.0.2 already includes `addEnvelopeRecipients()`,
+`createEnvelopeEmbeddedSession()`, `getEnvelopeEmbeddedSessions()`,
+`recordEnvelopeDeliveryProof()` and `sendEnvelope()`. This documentation correction
+does not change those PHP methods or move the existing v0.0.2 tag.
 
-- `addEnvelopeRecipients()`
-- `createEnvelopeEmbeddedSession()`
-- `getEnvelopeEmbeddedSessions()`
-- `recordEnvelopeDeliveryProof()`
-- `sendEnvelope()`
-
-These methods are part of the intended `v0.0.2` integration contract. Publish the release tag only after the matching AccordFlow runtime contract is merged.
+The canonical application API is `/api/envelopes/*`. Idempotency headers are not
+by themselves proof of server-side replay handling; a mutating transport timeout
+remains an unknown outcome until reconciled. Low-level crypto helpers are not
+substitutes for the Legal Office Envelope/session flow.
 
 ## Sign JSON payloads
 
@@ -133,6 +159,7 @@ $response = $client->sign([
     ],
     'username' => 'demo',
     'consent' => [
+        // This value must reflect the actual signer's explicit choice, not a default.
         'accepted' => true,
         'method' => 'CHECKBOX',
     ],
@@ -142,11 +169,11 @@ $signature = $response['signature'] ?? null;
 $redirectUrl = $response['redirectUrl'] ?? null;
 ```
 
-The signing endpoint requires an existing envelope. Create or look up the
-`envelopeId` before calling `sign`, and include an accepted `consent` payload so
-the API can capture signer consent evidence. Some providers return `redirectUrl`
-for browser-based handoff flows. Redirect the signer to that URL and store any
-returned `verificationReference` for later verification lookups.
+The signing endpoint requires an existing envelope and actual signer consent.
+Sender approval of an invitation is not that consent. Never invent signer IP,
+authentication, consent timestamps or intent to satisfy request validation.
+Some providers return `redirectUrl` for a browser handoff; preserve their returned
+`verificationReference` for subsequent verification.
 
 ## Sign and verify files
 
@@ -161,13 +188,16 @@ $verification = $client->verifyFile(
     ['profileId' => 123],
 );
 
-// File signing also requires an existing envelope ID; the helper sends the
-// second argument as the multipart `envelopeId` form field.
+// The second signFile argument is the multipart envelopeId form field.
 ```
+
+These are legacy low-level interfaces, not the Legal Office invitation path.
+Their identity/consent handling requires separate verification before use in a
+signer-facing workflow; this dispatch-boundary change does not certify them.
 
 ## Generic requests
 
-Use the generic helpers when the SDK has not added a typed wrapper yet:
+Use generic helpers only for operations without an available typed wrapper:
 
 ```php
 $usage = $client->get('/api/auth/usage/demo');
@@ -180,8 +210,8 @@ $createdUser = $client->post('/api/auth/signup', [
 ## Error handling
 
 Non-2xx responses and transport failures throw `AccordFlowException`. The
-exception includes the HTTP status code and decoded response body when the API
-returns JSON.
+exception includes the HTTP status code and decoded JSON response when available.
+Do not log provider payloads or exception bodies containing signing capabilities.
 
 ```php
 use AccordFlow\AccordFlowException;
@@ -194,7 +224,6 @@ try {
         'username' => 'demo',
     ]);
 } catch (AccordFlowException $error) {
-    error_log($error->getMessage());
-    error_log((string) $error->getStatusCode());
+    error_log('AccordFlow verification failed; HTTP ' . $error->getStatusCode());
 }
 ```
