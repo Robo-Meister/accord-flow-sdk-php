@@ -31,3 +31,5 @@ foreach ($required as $needle => $label) {
 echo "AccordFlow envelope SDK contract OK\n";
 
 require __DIR__ . '/dispatch-example.php';
+
+require __DIR__ . '/retrieval-contract.php';
