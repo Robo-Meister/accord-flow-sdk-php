@@ -182,14 +182,57 @@ final class AccordFlowClient
         return $this->get('/api/envelopes/' . rawurlencode((string) $envelopeId) . '/evidence');
     }
 
-    /**
-     * @param array<string, mixed> $payload
-     */
-    public function createEnvelopeEvidenceBundle(int|string $envelopeId, array $payload = []): mixed
+    public function getEnvelopeExecutedDocuments(int|string $envelopeId): mixed
     {
-        return $this->post(
-            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/evidence/bundle',
-            $payload,
+        return $this->get(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/executed-documents',
+        );
+    }
+
+    public function downloadEnvelopeExecutedDocument(
+        int|string $envelopeId,
+        int|string $artifactId,
+    ): AccordFlowBinaryResponse {
+        return $this->binaryRequest(
+            'GET',
+            '/api/envelopes/' . rawurlencode((string) $envelopeId)
+                . '/executed-documents/' . rawurlencode((string) $artifactId) . '/content',
+        );
+    }
+
+    public function getEnvelopeEvidenceBundles(int|string $envelopeId): mixed
+    {
+        return $this->get(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/evidence/bundles',
+        );
+    }
+
+    public function createEnvelopeEvidenceBundle(
+        int|string $envelopeId,
+        ?string $requestedBy = null,
+        ?string $idempotencyKey = null,
+    ): AccordFlowBinaryResponse {
+        $path = '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/evidence/bundle';
+        $requestedBy = $requestedBy !== null ? trim($requestedBy) : '';
+        if ($requestedBy !== '') {
+            $path .= '?requestedBy=' . rawurlencode($requestedBy);
+        }
+
+        return $this->binaryRequest(
+            'POST',
+            $path,
+            $this->idempotencyHeaders($idempotencyKey),
+        );
+    }
+
+    public function downloadEnvelopeEvidenceBundle(
+        int|string $envelopeId,
+        int|string $bundleId,
+    ): AccordFlowBinaryResponse {
+        return $this->binaryRequest(
+            'GET',
+            '/api/envelopes/' . rawurlencode((string) $envelopeId)
+                . '/evidence/bundles/' . rawurlencode((string) $bundleId) . '/content',
         );
     }
 
@@ -249,6 +292,25 @@ final class AccordFlowClient
     public function post(string $path, array $payload, array $headers = []): mixed
     {
         return $this->request('POST', $path, $payload, $headers);
+    }
+
+    /**
+     * @param array<string, string> $headers
+     */
+    public function binaryRequest(
+        string $method,
+        string $path,
+        array $headers = [],
+    ): AccordFlowBinaryResponse {
+        return $this->sendBinary(
+            $method,
+            $path,
+            $this->formatHeaders([
+                ...$this->defaultHeaders,
+                ...$headers,
+                'Accept' => 'application/octet-stream',
+            ]),
+        );
     }
 
     /**
@@ -339,6 +401,59 @@ final class AccordFlowClient
         }
 
         return $decoded;
+    }
+
+    /**
+     * @param list<string> $headers
+     */
+    private function sendBinary(string $method, string $path, array $headers): AccordFlowBinaryResponse
+    {
+        $curl = curl_init($this->baseUrl . '/' . ltrim($path, '/'));
+        if ($curl === false) {
+            throw new AccordFlowException('Unable to initialize cURL.');
+        }
+
+        $responseHeaders = [];
+        curl_setopt_array($curl, [
+            CURLOPT_CUSTOMREQUEST => strtoupper($method),
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => $this->timeoutSeconds,
+            CURLOPT_HEADERFUNCTION => static function ($handle, string $headerLine) use (&$responseHeaders): int {
+                $length = strlen($headerLine);
+                $trimmed = trim($headerLine);
+                if ($trimmed === '' || !str_contains($trimmed, ':')) {
+                    return $length;
+                }
+
+                [$name, $value] = explode(':', $trimmed, 2);
+                $responseHeaders[strtolower(trim($name))] = trim($value);
+
+                return $length;
+            },
+        ]);
+
+        $response = curl_exec($curl);
+        $statusCode = curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+
+        if ($response === false) {
+            $error = curl_error($curl);
+            curl_close($curl);
+            throw new AccordFlowException('HTTP request failed: ' . $error);
+        }
+
+        curl_close($curl);
+
+        if ($statusCode < 200 || $statusCode >= 300) {
+            $decoded = $this->decodeResponse($response);
+            $message = is_array($decoded) && isset($decoded['message'])
+                ? (string) $decoded['message']
+                : sprintf('AccordFlow API returned HTTP %d.', $statusCode);
+
+            throw new AccordFlowException($message, $statusCode, $decoded);
+        }
+
+        return new AccordFlowBinaryResponse($response, $statusCode, $responseHeaders);
     }
 
     private function decodeResponse(string $response): mixed

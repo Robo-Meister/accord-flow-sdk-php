@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Executed-document retrieval
+- Add typed `getEnvelopeExecutedDocuments()` descriptor discovery.
+- Add exact-byte `downloadEnvelopeExecutedDocument()` via `AccordFlowBinaryResponse`.
+- Add typed evidence-bundle discovery/download operations.
+- Make `createEnvelopeEvidenceBundle()` carry an optional deterministic `Idempotency-Key`.
+- Keep `downloadEnvelopeRecords()` semantically separate from executed-document and evidence-bundle retrieval.
+- Target the next immutable patch release after the matching runtime contract is merged; do not move `v0.0.3`.
+
+
 ### Documentation and verification
 - Correct the Envelope example: prepare and dispatch without fabricated signer consent or intent.
 - Require the matching `ACCORD-FLOW-DISPATCH-VS-SIGNER-CONSENT-BOUNDARY-001` runtime, not merely the PHP SDK version.
