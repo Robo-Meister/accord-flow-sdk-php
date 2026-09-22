@@ -10,7 +10,7 @@ by local open API mode.
 For application deployments, resolve the published release through Composer:
 
 ```bash
-composer require robo-meister/accord-flow-api:^0.0.2
+composer require robo-meister/accord-flow-api:^0.0.3
 ```
 
 Verify that your Composer registry resolves the release before updating an
@@ -39,7 +39,7 @@ $status = $client->status();
 ## Canonical envelope lifecycle
 
 This example requires the AccordFlow runtime fix
-`ACCORD-FLOW-DISPATCH-VS-SIGNER-CONSENT-BOUNDARY-001`, not merely SDK v0.0.2.
+`ACCORD-FLOW-DISPATCH-VS-SIGNER-CONSENT-BOUNDARY-001`, not merely an SDK release.
 Preparing or dispatching an Envelope does not assert signer consent or intent.
 The actual signer supplies those facts through the signing interaction.
 
@@ -135,15 +135,70 @@ AccordFlow still owns recipient authentication, signing, lifecycle and evidence.
 The provider-owned `signingUrl` requires runtime public-signing configuration.
 Do not reconstruct the frontend route or log the URL/capability token.
 
-SDK v0.0.2 already includes `addEnvelopeRecipients()`,
+SDK v0.0.3 includes `addEnvelopeRecipients()`,
 `createEnvelopeEmbeddedSession()`, `getEnvelopeEmbeddedSessions()`,
 `recordEnvelopeDeliveryProof()` and `sendEnvelope()`. This documentation correction
-does not change those PHP methods or move the existing v0.0.2 tag.
+does not change those PHP methods or move the existing v0.0.3 tag.
 
 The canonical application API is `/api/envelopes/*`. Idempotency headers are not
 by themselves proof of server-side replay handling; a mutating transport timeout
 remains an unknown outcome until reconciled. Low-level crypto helpers are not
 substitutes for the Legal Office Envelope/session flow.
+
+## Completed Envelope retrieval
+
+After the runtime contract `ACCORD-FLOW-SIGNED-DOCUMENT-RETRIEVAL-CONTRACT-001` is deployed, applications can retrieve the final executed-document descriptors separately from evidence exports:
+
+```php
+$status = $client->getEnvelopeStatus($envelopeId);
+if (($status['status'] ?? $status) !== 'COMPLETED') {
+    throw new RuntimeException('Envelope is not complete.');
+}
+
+$executed = $client->getEnvelopeExecutedDocuments($envelopeId);
+foreach ($executed['documents'] ?? [] as $descriptor) {
+    $artifact = $client->downloadEnvelopeExecutedDocument(
+        $envelopeId,
+        $descriptor['artifactId'],
+    );
+
+    if (hash('sha256', $artifact->body) !== $descriptor['sha256']) {
+        throw new RuntimeException('Executed document hash mismatch.');
+    }
+
+    // Persist exactly $artifact->body.
+}
+```
+
+`downloadEnvelopeExecutedDocument()` returns `AccordFlowBinaryResponse`; its `body` contains the exact HTTP response bytes and is not JSON-decoded, base64-normalized or re-encoded by the SDK. Response headers remain available for content type, length, filename and provider hash metadata.
+
+A completed Envelope may legitimately have no executed-document artifact when the signing mode produced only detached signature material. In that case the runtime fails closed; the SDK does not fall back to the original Envelope document, `downloadEnvelopeRecords()`, or evidence bytes.
+
+### Evidence bundles
+
+Evidence bundles have a separate discovery/reuse contract:
+
+```php
+$bundles = $client->getEnvelopeEvidenceBundles($envelopeId);
+
+$bundle = $client->createEnvelopeEvidenceBundle(
+    $envelopeId,
+    requestedBy: 'reconciliation-service',
+    idempotencyKey: 'signature-123:evidence-bundle',
+);
+
+$existing = $bundles[0] ?? null;
+if ($existing !== null) {
+    $download = $client->downloadEnvelopeEvidenceBundle(
+        $envelopeId,
+        $existing['bundleId'],
+    );
+}
+```
+
+`createEnvelopeEvidenceBundle()` carries `Idempotency-Key`; runtime replay semantics decide whether an existing bundle is reused. Executed documents, evidence bundles and the legacy `/records` export are intentionally separate contracts.
+
+These retrieval methods are intended for the next immutable SDK patch release after the runtime predecessor is merged. Do not move the existing `v0.0.3` tag.
 
 ## Sign JSON payloads
 
