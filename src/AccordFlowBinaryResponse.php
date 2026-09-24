@@ -9,15 +9,15 @@ namespace AccordFlow;
  *
  * Body bytes are not decoded or normalized.
  */
-final readonly class AccordFlowBinaryResponse
+final class AccordFlowBinaryResponse
 {
     /**
      * @param array<string, string> $headers Lower-case response header names.
      */
     public function __construct(
-        public string $body,
-        public int $statusCode,
-        public array $headers = [],
+        public readonly string $body,
+        public readonly int $statusCode,
+        public readonly array $headers = [],
     ) {
     }
 

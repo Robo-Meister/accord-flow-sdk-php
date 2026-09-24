@@ -1,14 +1,19 @@
 # Changelog
 
-## Unreleased
+## v0.0.4 - 2026-09-24
 
 ### Executed-document retrieval
-- Add typed `getEnvelopeExecutedDocuments()` descriptor discovery.
+- Add typed `listEnvelopeExecutedDocuments()` descriptor discovery (with the
+  pre-release `getEnvelopeExecutedDocuments()` name retained as an alias).
 - Add exact-byte `downloadEnvelopeExecutedDocument()` via `AccordFlowBinaryResponse`.
-- Add typed evidence-bundle discovery/download operations.
+- Add typed `listEnvelopeEvidenceBundles()` discovery and exact-byte download
+  operations (with the pre-release getter retained as an alias).
 - Make `createEnvelopeEvidenceBundle()` carry an optional deterministic `Idempotency-Key`.
 - Keep `downloadEnvelopeRecords()` semantically separate from executed-document and evidence-bundle retrieval.
-- Target the next immutable patch release after the matching runtime contract is merged; do not move `v0.0.3`.
+- Preserve runtime 409 status and decoded error details, including
+  `EXECUTED_DOCUMENT_BYTES_NOT_PRODUCED_BY_PROVIDER`.
+- Add live HTTP contract tests for paths, headers, error propagation and binary
+  identity.
 
 
 ### Documentation and verification
