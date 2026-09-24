@@ -9,7 +9,7 @@ if (!is_string($readme)) {
     throw new RuntimeException('README is unavailable.');
 }
 $start = strpos($readme, '## Canonical envelope lifecycle');
-$end = strpos($readme, '## Sign JSON payloads');
+$end = strpos($readme, '## Completed Envelope retrieval');
 if ($start === false || $end === false || $end <= $start) {
     throw new RuntimeException('Canonical lifecycle example is missing.');
 }

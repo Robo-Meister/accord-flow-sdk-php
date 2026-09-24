@@ -182,11 +182,19 @@ final class AccordFlowClient
         return $this->get('/api/envelopes/' . rawurlencode((string) $envelopeId) . '/evidence');
     }
 
-    public function getEnvelopeExecutedDocuments(int|string $envelopeId): mixed
+    public function listEnvelopeExecutedDocuments(int|string $envelopeId): mixed
     {
         return $this->get(
             '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/executed-documents',
         );
+    }
+
+    /**
+     * Backward-compatible alias for the pre-release method name.
+     */
+    public function getEnvelopeExecutedDocuments(int|string $envelopeId): mixed
+    {
+        return $this->listEnvelopeExecutedDocuments($envelopeId);
     }
 
     public function downloadEnvelopeExecutedDocument(
@@ -200,27 +208,30 @@ final class AccordFlowClient
         );
     }
 
-    public function getEnvelopeEvidenceBundles(int|string $envelopeId): mixed
+    public function listEnvelopeEvidenceBundles(int|string $envelopeId): mixed
     {
         return $this->get(
             '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/evidence/bundles',
         );
     }
 
+    /**
+     * Backward-compatible alias for the pre-release method name.
+     */
+    public function getEnvelopeEvidenceBundles(int|string $envelopeId): mixed
+    {
+        return $this->listEnvelopeEvidenceBundles($envelopeId);
+    }
+
+    /** @param array<string, mixed> $payload */
     public function createEnvelopeEvidenceBundle(
         int|string $envelopeId,
-        ?string $requestedBy = null,
+        array $payload = [],
         ?string $idempotencyKey = null,
-    ): AccordFlowBinaryResponse {
-        $path = '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/evidence/bundle';
-        $requestedBy = $requestedBy !== null ? trim($requestedBy) : '';
-        if ($requestedBy !== '') {
-            $path .= '?requestedBy=' . rawurlencode($requestedBy);
-        }
-
-        return $this->binaryRequest(
-            'POST',
-            $path,
+    ): mixed {
+        return $this->post(
+            '/api/envelopes/' . rawurlencode((string) $envelopeId) . '/evidence/bundle',
+            $payload,
             $this->idempotencyHeaders($idempotencyKey),
         );
     }
@@ -393,9 +404,7 @@ final class AccordFlowClient
         $decoded = $this->decodeResponse($response);
 
         if ($statusCode < 200 || $statusCode >= 300) {
-            $message = is_array($decoded) && isset($decoded['message'])
-                ? (string) $decoded['message']
-                : sprintf('AccordFlow API returned HTTP %d.', $statusCode);
+            $message = $this->errorMessage($decoded, $statusCode);
 
             throw new AccordFlowException($message, $statusCode, $decoded);
         }
@@ -446,9 +455,7 @@ final class AccordFlowClient
 
         if ($statusCode < 200 || $statusCode >= 300) {
             $decoded = $this->decodeResponse($response);
-            $message = is_array($decoded) && isset($decoded['message'])
-                ? (string) $decoded['message']
-                : sprintf('AccordFlow API returned HTTP %d.', $statusCode);
+            $message = $this->errorMessage($decoded, $statusCode);
 
             throw new AccordFlowException($message, $statusCode, $decoded);
         }
@@ -469,6 +476,19 @@ final class AccordFlowClient
         }
 
         return json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    private function errorMessage(mixed $response, int $statusCode): string
+    {
+        if (is_array($response)) {
+            foreach (['message', 'error', 'code'] as $field) {
+                if (isset($response[$field]) && is_scalar($response[$field])) {
+                    return (string) $response[$field];
+                }
+            }
+        }
+
+        return sprintf('AccordFlow API returned HTTP %d.', $statusCode);
     }
 
     /** @return array<string, string> */

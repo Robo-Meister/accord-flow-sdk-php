@@ -14,6 +14,9 @@
     }
   },
   "scripts": {
-    "test": "php tests/contract.php"
+    "test": [
+      "php tests/contract.php",
+      "php tests/retrieval-integration.php"
+    ]
   }
 }

@@ -9,9 +9,9 @@ if (!is_string($source) || !is_string($binary)) {
 }
 
 $required = [
-    'function getEnvelopeExecutedDocuments(' => '/executed-documents',
+    'function listEnvelopeExecutedDocuments(' => '/executed-documents',
     'function downloadEnvelopeExecutedDocument(' => '/executed-documents/',
-    'function getEnvelopeEvidenceBundles(' => '/evidence/bundles',
+    'function listEnvelopeEvidenceBundles(' => '/evidence/bundles',
     'function createEnvelopeEvidenceBundle(' => '/evidence/bundle',
     'function downloadEnvelopeEvidenceBundle(' => '/evidence/bundles/',
     'function binaryRequest(' => 'binary request',
@@ -25,7 +25,7 @@ foreach ($required as $needle => $label) {
     }
 }
 
-foreach (['public string $body', 'contentType()', 'contentLength()', 'filename()'] as $needle) {
+foreach (['public readonly string $body', 'contentType()', 'contentLength()', 'filename()'] as $needle) {
     if (!str_contains($binary, $needle)) {
         throw new RuntimeException('Missing exact binary response contract: ' . $needle);
     }

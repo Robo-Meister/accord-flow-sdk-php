@@ -10,7 +10,7 @@ by local open API mode.
 For application deployments, resolve the published release through Composer:
 
 ```bash
-composer require robo-meister/accord-flow-api:^0.0.3
+composer require robo-meister/accord-flow-api:^0.0.4
 ```
 
 Verify that your Composer registry resolves the release before updating an
@@ -155,7 +155,7 @@ if (($status['status'] ?? $status) !== 'COMPLETED') {
     throw new RuntimeException('Envelope is not complete.');
 }
 
-$executed = $client->getEnvelopeExecutedDocuments($envelopeId);
+$executed = $client->listEnvelopeExecutedDocuments($envelopeId);
 foreach ($executed['documents'] ?? [] as $descriptor) {
     $artifact = $client->downloadEnvelopeExecutedDocument(
         $envelopeId,
@@ -170,7 +170,7 @@ foreach ($executed['documents'] ?? [] as $descriptor) {
 }
 ```
 
-`downloadEnvelopeExecutedDocument()` returns `AccordFlowBinaryResponse`; its `body` contains the exact HTTP response bytes and is not JSON-decoded, base64-normalized or re-encoded by the SDK. Response headers remain available for content type, length, filename and provider hash metadata.
+`downloadEnvelopeExecutedDocument()` returns `AccordFlowBinaryResponse`; its `body` contains the exact HTTP response bytes and is not trimmed, JSON-decoded, base64-normalized, transcoded, or re-encoded by the SDK. Response headers remain available for content type, length, filename and provider hash metadata.
 
 A completed Envelope may legitimately have no executed-document artifact when the signing mode produced only detached signature material. In that case the runtime fails closed; the SDK does not fall back to the original Envelope document, `downloadEnvelopeRecords()`, or evidence bytes.
 
@@ -179,11 +179,11 @@ A completed Envelope may legitimately have no executed-document artifact when th
 Evidence bundles have a separate discovery/reuse contract:
 
 ```php
-$bundles = $client->getEnvelopeEvidenceBundles($envelopeId);
+$bundles = $client->listEnvelopeEvidenceBundles($envelopeId);
 
 $bundle = $client->createEnvelopeEvidenceBundle(
     $envelopeId,
-    requestedBy: 'reconciliation-service',
+    payload: ['requestedBy' => 'reconciliation-service'],
     idempotencyKey: 'signature-123:evidence-bundle',
 );
 
@@ -196,9 +196,26 @@ if ($existing !== null) {
 }
 ```
 
-`createEnvelopeEvidenceBundle()` carries `Idempotency-Key`; runtime replay semantics decide whether an existing bundle is reused. Executed documents, evidence bundles and the legacy `/records` export are intentionally separate contracts.
+`createEnvelopeEvidenceBundle()` carries `Idempotency-Key`; runtime replay semantics decide whether an existing bundle is reused. The SDK neither caches a bundle nor invents its identity. The optional payload remains a runtime request payload.
 
-These retrieval methods are intended for the next immutable SDK patch release after the runtime predecessor is merged. Do not move the existing `v0.0.3` tag.
+The retrieval concepts are intentionally distinct:
+
+- **Source document** is the immutable input submitted for signing.
+- **Executed document** is the provider-produced final signed-document bytes.
+- **Evidence bundle** is the evidence archive/package created and persisted by the runtime.
+- **Records export** is the broader records/evidence export returned by `downloadEnvelopeRecords()`.
+
+In particular, `/records` is not an executed signed document and
+`downloadEnvelopeRecords()` must not be used as a fallback for one. After
+`SIGNATURE.COMPLETED`, Robo Connector should list executed documents, select the
+descriptor for the expected source document, download its exact bytes, verify
+the descriptor hash and byte length, list or create the evidence bundle, and
+then download its exact bytes. The SDK deliberately does not choose which
+artifact is acceptable; source identity and integrity validation belong to Robo
+Connector reconciliation.
+
+These retrieval methods are introduced in immutable SDK release `v0.0.4`. The
+existing `v0.0.3` tag must not be moved.
 
 ## Sign JSON payloads
 
@@ -282,3 +299,9 @@ try {
     error_log('AccordFlow verification failed; HTTP ' . $error->getStatusCode());
 }
 ```
+
+For example, a runtime response with HTTP 409 and code
+`EXECUTED_DOCUMENT_BYTES_NOT_PRODUCED_BY_PROVIDER` remains an
+`AccordFlowException` with status `409` and the complete decoded response from
+`getResponseBody()`. It is not converted to a 404 or an empty response, and the
+SDK never falls back to source-document, evidence-bundle, or records bytes.
